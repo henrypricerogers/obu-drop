@@ -102,22 +102,21 @@ def main():
             log("Dry run OK, account:", who.get("username"), "file bytes:", size)
             continue
         cover = f"https://raw.githubusercontent.com/{os.environ['GITHUB_REPOSITORY']}/{os.environ.get('GITHUB_SHA','main')}/{e['cover']}"
+        # Host the joined original as a temporary release asset so Instagram can fetch it.
+        tag = f"media-{e['id']}"
+        repo = os.environ["GITHUB_REPOSITORY"]
+        subprocess.run(["gh", "release", "delete", tag, "--repo", repo, "--yes", "--cleanup-tag"], capture_output=True)
+        subprocess.run(["gh", "release", "create", tag, path, "--repo", repo, "--title", tag,
+                        "--notes", "Temporary upload for Instagram. Deleted after posting.", "--prerelease"], check=True)
+        video_url = f"https://github.com/{repo}/releases/download/{tag}/{os.path.basename(path)}"
         c = req("POST", f"{GRAPH}/{ig}/media", data={
-            "media_type": "REELS", "upload_type": "resumable", "caption": e["caption"],
+            "media_type": "REELS", "video_url": video_url, "caption": e["caption"],
             "share_to_feed": "true", "cover_url": cover, "access_token": tok})
         if "id" not in c:
             log("Container failed:", c.get("error", {}).get("message"))
             rc = 1
             continue
-        cid, uri = c["id"], c["uri"]
-        with open(path, "rb") as f:
-            data = f.read()
-        u = req("POST", uri, body=data, headers={
-            "Authorization": f"OAuth {tok}", "offset": "0", "file_size": str(size)}, timeout=1800)
-        if not u.get("success"):
-            log("Upload failed:", json.dumps(u)[:300])
-            rc = 1
-            continue
+        cid = c["id"]
         status = None
         for _ in range(90):
             time.sleep(10)
@@ -126,6 +125,7 @@ def main():
             if status in ("FINISHED", "ERROR", "EXPIRED"):
                 break
         log("Processing status:", status)
+        subprocess.run(["gh", "release", "delete", tag, "--repo", repo, "--yes", "--cleanup-tag"], capture_output=True)
         if status != "FINISHED":
             rc = 1
             continue
