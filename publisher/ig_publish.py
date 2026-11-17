@@ -83,13 +83,15 @@ def main():
         tok = acct["page_token"]
         ig = acct["ig_id"]
         log(f"Preparing {e['id']} for {e['account']} at {e['publish_at']}")
-        subprocess.run(["git", "-C", ROOT, "sparse-checkout", "add", *e["parts"]], check=True)
         path = f"/tmp/{e['id']}.mp4"
         with open(path, "wb") as out:
             for p in e["parts"]:
-                with open(os.path.join(ROOT, p), "rb") as f:
-                    while chunk := f.read(8 << 20):
-                        out.write(chunk)
+                # Parts live outside the sparse checkout; stream each blob straight from git.
+                proc = subprocess.Popen(["git", "-C", ROOT, "cat-file", "blob", f"HEAD:{p}"], stdout=subprocess.PIPE)
+                while chunk := proc.stdout.read(8 << 20):
+                    out.write(chunk)
+                if proc.wait() != 0:
+                    raise RuntimeError(f"could not read {p} from the repo")
         size = os.path.getsize(path)
         if e.get("size") and size != e["size"]:
             log(f"Size mismatch for {e['id']}: {size} != {e['size']}")
