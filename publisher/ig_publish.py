@@ -59,10 +59,24 @@ def load(path, default):
         return default
 
 
+def latest_posted():
+    """posted.json as it is on main right now, so a run that started from an older commit can't post a reel twice."""
+    try:
+        subprocess.run(["git", "-C", ROOT, "fetch", "-q", "--depth", "1", "origin", "main"], check=True, capture_output=True)
+        out = subprocess.run(["git", "-C", ROOT, "show", "FETCH_HEAD:publisher/posted.json"], check=True, capture_output=True).stdout
+        return json.loads(out or b"{}")
+    except Exception as ex:
+        log("Could not read posted.json from main:", ex)
+        return None
+
+
 def main():
     pages = json.loads(os.environ["OBU_PAGES"])
     sched = load(SCHED, [])
     posted = load(POSTED, {})
+    remote = latest_posted()
+    if remote:
+        posted.update({k: v for k, v in remote.items() if k not in posted})
     now = time.time()
     only = os.environ.get("ONLY_ID")
     due = []
@@ -136,6 +150,11 @@ def main():
         if wait > 0:
             log(f"Waiting {int(wait)}s until publish time")
             time.sleep(wait)
+        remote = latest_posted()
+        if remote is None or (e["id"] in remote and remote[e["id"]].get("media_id")):
+            log(f"Not publishing {e['id']}: " + ("another run already posted it." if remote else "could not confirm it hasn't been posted."))
+            rc = 1 if remote is None else rc
+            continue
         p = req("POST", f"{GRAPH}/{ig}/media_publish", data={"creation_id": cid, "access_token": tok})
         if "id" not in p:
             log("Publish failed:", p.get("error", {}).get("message"))

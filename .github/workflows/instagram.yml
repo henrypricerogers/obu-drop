@@ -26,6 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           sparse-checkout: publisher
           filter: blob:none
           fetch-depth: 1
