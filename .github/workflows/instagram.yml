@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "1 = check access and files only, no posting"
+        description: "1 = check access only; prepare = upload test, no posting; 0 = real"
         default: "1"
       only_id:
         description: "Run just this reel id now (optional)"

@@ -29,6 +29,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCHED = os.path.join(ROOT, "publisher", "schedule.json")
 POSTED = os.path.join(ROOT, "publisher", "posted.json")
 DRY = os.environ.get("DRY_RUN") == "1"
+PREP = os.environ.get("DRY_RUN") == "prepare"  # upload + process, but never publish
 
 
 def log(*a):
@@ -125,6 +126,9 @@ def main():
         log("Processing status:", status)
         if status != "FINISHED":
             rc = 1
+            continue
+        if PREP:
+            log("Prepare-only test passed: Instagram processed the full file. Not publishing.")
             continue
         wait = t - time.time()
         if wait > 0:
