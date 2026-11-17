@@ -1,1 +1,49 @@
+name: Instagram 6pm publisher
+on:
+  schedule:
+    # 6pm London is 18:00 UTC in winter and 17:00 UTC in summer; two tries each.
+    - cron: "5 16 * * *"
+    - cron: "35 16 * * *"
+    - cron: "5 17 * * *"
+    - cron: "35 17 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "1 = check access only; prepare = upload test, no posting; 0 = real"
+        default: "1"
+      only_id:
+        description: "Run just this reel id now (optional)"
+        default: ""
+concurrency:
+  group: instagram-publisher
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: publisher
+          filter: blob:none
+          fetch-depth: 1
+      - name: Publish due reels
+        env:
+          OBU_PAGES: ${{ secrets.OBU_PAGES }}
           GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          ONLY_ID: ${{ github.event.inputs.only_id }}
+        run: python3 publisher/ig_publish.py
+      - name: Record what was posted
+        if: always()
+        run: |
+          git config user.name "obu-publisher"
+          git config user.email "actions@users.noreply.github.com"
+          if [ -n "$(git status --porcelain publisher/posted.json)" ]; then
+            git add publisher/posted.json
+            git commit -m "Record Instagram posts"
+            git pull --rebase --quiet origin main || true
+            git push origin HEAD:main
+          fi
