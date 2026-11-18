@@ -1,0 +1,42 @@
+name: marketing-team
+on:
+  schedule:
+    - cron: "40 5 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "probe, collect or reply"
+        default: "collect"
+      replies:
+        description: "JSON list of approved replies (reply mode)"
+        default: "[]"
+permissions:
+  contents: read
+concurrency:
+  group: marketing-team
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          sparse-checkout: publisher
+          filter: blob:none
+          fetch-depth: 1
+      - name: Run
+        env:
+          OBU_PAGES: ${{ secrets.OBU_PAGES }}
+          TEAM_MODE: ${{ github.event.inputs.mode || 'collect' }}
+          TEAM_REPLIES: ${{ github.event.inputs.replies || '[]' }}
+        run: python3 publisher/team.py
+      - name: Save results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: team-${{ github.event.inputs.mode || 'collect' }}
+          path: out/
+          retention-days: 7
+          if-no-files-found: ignore
