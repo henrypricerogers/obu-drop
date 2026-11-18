@@ -70,6 +70,19 @@ def latest_posted():
         return None
 
 
+def already_live(ig, tok, caption):
+    """Second lock: ask Instagram itself whether a post with this caption went up in the last 12 hours."""
+    r = req("GET", f"{GRAPH}/{ig}/media?fields=id,caption,timestamp&limit=10&access_token={urllib.parse.quote(tok)}", timeout=60)
+    if "data" not in r:
+        return None  # unknown: treat as not safe to publish
+    key = " ".join((caption or "").split())[:80]
+    for m in r["data"]:
+        when = datetime.fromisoformat(m["timestamp"].replace("+0000", "+00:00"))
+        if (datetime.now(timezone.utc) - when).total_seconds() < 12 * 3600 and " ".join((m.get("caption") or "").split())[:80] == key:
+            return m["id"]
+    return False
+
+
 def main():
     pages = json.loads(os.environ["OBU_PAGES"])
     sched = load(SCHED, [])
@@ -96,6 +109,9 @@ def main():
         acct = pages[e["account"]]
         tok = acct["page_token"]
         ig = acct["ig_id"]
+        if not DRY and not PREP and already_live(ig, tok, e["caption"]):
+            log(f"Skipping {e['id']}: Instagram already shows a post with this caption.")
+            continue
         log(f"Preparing {e['id']} for {e['account']} at {e['publish_at']}")
         path = f"/tmp/{e['id']}.mp4"
         with open(path, "wb") as out:
@@ -150,6 +166,15 @@ def main():
         if wait > 0:
             log(f"Waiting {int(wait)}s until publish time")
             time.sleep(wait)
+        live = already_live(ig, tok, e["caption"])
+        if live is None or live:
+            log(f"Not publishing {e['id']}: " + (f"Instagram already shows it as {live}." if live else "could not check Instagram for an existing copy."))
+            if live:
+                posted[e["id"]] = {"media_id": live, "published": "already live"}
+                with open(POSTED, "w") as f:
+                    json.dump(posted, f, indent=1)
+            rc = 1 if live is None else rc
+            continue
         remote = latest_posted()
         if remote is None or (e["id"] in remote and remote[e["id"]].get("media_id")):
             log(f"Not publishing {e['id']}: " + ("another run already posted it." if remote else "could not confirm it hasn't been posted."))
