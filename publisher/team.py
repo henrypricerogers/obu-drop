@@ -63,13 +63,18 @@ def fb_reels(acct):
     out = []
     for v in r.get("data", []):
         item = {"id": v["id"], "timestamp": v.get("created_time"), "permalink": v.get("permalink_url"), "caption": (v.get("description") or "")[:140]}
-        ins = get(f"{v['id']}/video_insights", acct["page_token"], metric="blue_reels_play_count,post_impressions_unique,post_video_likes_by_reaction_type")
-        if not err(ins):
+        for metric, key in (("fb_reels_total_plays", "views"), ("blue_reels_play_count", "views"), ("post_impressions_unique", "reach"),
+                            ("post_video_avg_time_watched", "avg_watch_ms"), ("post_video_social_actions", "engagements")):
+            if key in item:
+                continue
+            ins = get(f"{v['id']}/video_insights", acct["page_token"], metric=metric)
+            if err(ins):
+                item.setdefault("insights_error", f"{metric}: {err(ins)}")
+                continue
             for d in ins.get("data", []):
-                val = (d.get("values") or [{}])[0].get("value")
-                item[{"blue_reels_play_count": "views", "post_impressions_unique": "reach", "post_video_likes_by_reaction_type": "reactions"}.get(d["name"], d["name"])] = val
-        else:
-            item["insights_error"] = err(ins)
+                item[key] = (d.get("values") or [{}])[0].get("value")
+        if "views" in item:
+            item.pop("insights_error", None)
         out.append(item)
     return out, None
 
@@ -104,6 +109,15 @@ def fb_comments(acct, reels):
             out.append({"platform": "facebook", "comment_id": c["id"], "post": v.get("permalink"), "post_caption": v.get("caption"),
                         "user": (c.get("from") or {}).get("name", "someone"), "text": c.get("message"), "time": c.get("created_time")})
     return out, None
+
+
+def emit(obj):
+    """Print results into the run log (the only output the daily run can fetch), compressed, in chunks."""
+    import base64, zlib
+    blob = base64.b64encode(zlib.compress(json.dumps(obj).encode(), 9)).decode()
+    for i in range(0, len(blob), 3000):
+        print(f"TEAMDATA {i // 3000:04d} {blob[i:i + 3000]}", flush=True)
+    print("TEAMDATA END", flush=True)
 
 
 def collect(pages, probe=False):
@@ -145,6 +159,7 @@ def collect(pages, probe=False):
         return 0
     json.dump(stats, open(os.path.join(OUT, "stats.json"), "w"), indent=1)
     json.dump({"collected": stats["collected"], "comments": comments}, open(os.path.join(OUT, "comments.json"), "w"), indent=1)
+    emit({"stats": stats, "comments": comments})
     log(f"Saved stats for {len(stats['accounts'])} accounts and {len(comments)} unanswered Ocean Below Us comments.")
     return 0
 
@@ -172,6 +187,7 @@ def reply(pages):
         time.sleep(2)
     os.makedirs(OUT, exist_ok=True)
     json.dump({"sent": done, "at": NOW.isoformat(timespec="seconds")}, open(os.path.join(OUT, "replies.json"), "w"))
+    emit({"sent": done})
     return rc
 
 
